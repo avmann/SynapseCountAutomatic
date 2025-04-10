@@ -1,0 +1,266 @@
+//Automated Synapse count v0.25 by Andre Voelzmann
+//Macro to count pre-synapses in primary neurons. 
+//Synpase defined as particles positive for synpatic markes with high staining intensity
+//compared to rest of the axon (which would be defined as vesicles) -
+//thresholding has to be used to differentiate between both 'pools' 
+//Definitions according to N. Sanchez-Soriano
+//includes watersheding
+
+macro "Automated Synapse count [q]" {
+/*defines the dropdown menu items and defaults */
+	channels=newArray("RFP", "GFP", "Cy5");
+/*	defCh="RFP";	*/
+	help_=newArray("yes", "no", "help ONLY");
+	defhelp_="no";
+	var dir1 = getDirectory("Choose Input Directory ");
+	var dir2 = getDirectory("Choose Output Directory ");
+/*needed to start with first image when creating image list*/ 
+	count = 1;
+	var z;
+	var filelist=newArray;
+	var files=newArray;
+	var list=getFileList(dir1);
+	var minsize_=0.005;
+	items = list.length;
+	filelist=listFiles(dir1);
+	z =	lengthOf(filelist);
+//	Array.print(filelist);
+//	print(z); 
+//	savefiles(filelist);
+//	files=savefiles(filelist);
+//	Array.print(files);
+	water_=newArray("yes", "no");
+	defwater_="no";
+	setBatchMode(true);
+	run("Set Measurements...", "area mean perimeter shape feret's display redirect=None decimal=4");
+	run("Input/Output...", "save_column");
+	
+
+
+/*create helpfile dialog */
+function helpfile() {
+Dialog.create("Help for SynapseCountAutomatic_v10 macro by Andre Voelzmann");
+Dialog.addMessage("WORKFLOW:");
+Dialog.addMessage("BEFORE using the macro:");
+Dialog.addMessage("Image should be a 16bit tif imagefile with 2-3 channels. 8bit tiff and jpeg files work too but then the thresholds have to be set accordingly."); 
+Dialog.addMessage("Open image, mark cells excluding the soma and add to roiManager (ctrl-T).");
+Dialog.addMessage("Save rois into a .zip file with the same filename as the image.");
+Dialog.addMessage("UPON start of the macro:");
+Dialog.addMessage("1. Chose the directory where your image and roi files are.");
+Dialog.addMessage("2. Chose output directory for your analysis results (can be the same folder).");
+Dialog.addMessage("3. Choose whether or not to display the help and choose which colour (channel) to analyse.");
+Dialog.addMessage("4. Choose if you want to use watershedding");
+Dialog.addMessage("5. Enter the values for the lower (empirically determined) and upper threshold (upper should be 65535 for 16bit images).");
+Dialog.addMessage("Output will be the a results and a summary table with synapse count and particle statistics.");
+Dialog.addMessage("PREREQUISITES:");
+Dialog.addMessage("2- or 3-channel RGB image. Channel order should be red, green and blue, otherwise user choice does not correspond to analysed channel (will be analysed though).");
+Dialog.addMessage("Close everything but the main window in imagej/fiji (no open images and roiManager).");
+Dialog.addMessage("Folder may contain other files but no jpegs or tiff files without a corresponding roi-zip file.");
+Dialog.addMessage("Image and roi files should be labeled so that when sorted by name, image file comes first, corresponding roi after and then the next image file and so forth.");
+Dialog.show();
+}
+/* Array append function*/
+function append(arr, value) {
+	newlength=arr.length+1;
+     arr2 = newArray(newlength);
+     for (i=0; i<arr.length; i++)
+        arr2[i] = arr[i];
+     arr2[arr.length] = value;
+     return arr2;
+  }
+  
+/*function to only load tiffs/jpegs and zip files*/
+function listFiles(dir1) {
+          list=getFileList(dir1);
+          var filelist=newArray;
+        for (q=0; q<list.length; q++) {
+        if (endsWith(list[q], ".tif") || endsWith(list[q], ".tiff") || endsWith(list[q], ".jpg") || endsWith(list[q], ".jpeg")|| endsWith(list[q], ".zip")  || endsWith(list[q], ".tiff") || endsWith(list[q], ".TIF") || endsWith(list[q], ".JPG") || endsWith(list[q], ".JPEG") || endsWith(list[q], ".ZIP"))
+           filelist = append(filelist, list[q]);
+		   /*        else
+           print((count++) + ": " + dir1 + list[q]); */
+     }
+	 Array.sort(filelist);
+    return filelist;
+  }
+/*
+function savefiles(filelist) {
+//get string from array at position q
+	var files=newArray;
+	for (p=0; p<filelist.length; p++) {
+//get filelist element at position p
+	files0=filelist[p];
+//get substring of filelist elements by finding last backslash and substring from there
+	ind1_=lastIndexOf(files0, "\\");
+	ind2_=lengthOf(files0);
+	files_=substring(files0, ind1_+1, ind2_);
+//add filenames to array
+	files=append(files, files_);
+	}
+	return files;
+	
+}
+*/
+/*function to execute watershedding (tries to seperate merging structures)*/
+function watershedding() {
+	run("Convert to Mask");
+	run("Watershed");
+}
+
+function analyseROIs()	{
+	
+/*defines channels to be analysed according to the user choice, adds switch (fcall) for which functions to call */
+	
+for (j=0; j<z; j+=2){
+	open(dir1+filelist[j]);
+	run("Make Composite");
+	roiManager("Open", dir1+filelist[j+1]);
+	/*set scale*/
+	run("Set Scale...", "distance=&dist_ known=1 pixel=1 unit=&unit_");
+	Stack.setDisplayMode("grayscale");
+	imageTitle=getTitle(); //returns a string with the image title
+	//find out if one or more channels
+	getDimensions(width, height, channels, slices, frames);
+	run("Split Channels");
+	if (channels == 3){
+	selectWindow(x_+"-"+imageTitle);
+	close();
+	selectWindow(y_+"-"+imageTitle);
+	close();
+	selectWindow(z_+"-"+imageTitle);}
+	else if (channels == 2 && Ch_ == "RFP"){
+	selectWindow(x_+"-"+imageTitle);
+	close();	
+	selectWindow(z_+"-"+imageTitle);}
+	else if (channels == 2 && Ch_ == "GFP"){
+	selectWindow(x_+"-"+imageTitle);
+	close();	
+	selectWindow(z_+"-"+imageTitle);}
+	else if (channels == 2 && Ch_ == "Cy5"){
+	z_ = "C2";
+	selectWindow(x_+"-"+imageTitle);
+	close();	
+	selectWindow(z_+"-"+imageTitle);}
+	setThreshold(t1, t2);
+	setOption("BlackBackground", false);
+	if (water_=="yes") {
+	watershedding();
+	wat_="shed";
+	}
+	else {wat_="";}
+	imageTitle=getTitle();
+	n = roiManager("count");
+	/* first index number is 0, therefore index = n-1 in consequence i<n and not i<=n */
+	for (i=0; i<n; i++) {
+		selectImage(imageTitle);
+		roiManager("Select", i);
+		run("Analyze Particles...", "size=&minsize_-Infinity display summarize add");
+		}
+	roiManager("Save", dir2+filelist[j]+"_"+Ch_+"_"+t1+"_"+wat_+"_minsize"+minsize_+"_synapse_recognisedparticles.zip");
+	roiManager("Reset");
+	if (isOpen("Summary")) {
+	selectWindow("Summary");
+	saveAs("Text", dir2+filelist[j]+"_"+Ch_+"_"+t1+"_"+wat_+"_minsize"+minsize_+"_synapse_summary.txt");
+	run("Close");
+	}
+ 	if (isOpen("Results")) {
+       	selectWindow("Results");
+	saveAs("Results", dir2+filelist[j]+"_"+Ch_+"_"+t1+"_"+wat_+"_minsize"+minsize_+"_synapse_results.txt");
+       	run("Close");}
+	run("Close All");
+	run("Collect Garbage");
+	}
+	print("Analysis Done");
+}
+/*get image scaling data from user*/
+//	dist_=getNumber("enter distance per pixel a.k.a. scaling factor:", 150);
+//	unit_=getString("enter distance unit:", "µm");
+
+
+/*assumes RGB image order, works with any order but then 'red, green and blue' to correspond to the channel numbers anymore */
+	Dialog.create("Choose channels to analyse");
+	Dialog.addChoice("show help", help_, defhelp_);
+	Dialog.addNumber("enter distance per pixel a.k.a. scaling factor:", 29.33333334);
+	Dialog.addString("enter distance unit:", "um");
+	Dialog.addNumber("minimum particle size to recognise (same unit as scaling factor):", 0.005);
+	Dialog.addChoice("channel to analyse", channels);
+	Dialog.addNumber("set lower threshold", 0);
+	Dialog.addNumber("set upper threshold", 65535);
+	Dialog.addChoice("do want to watershed?", water_, defwater_);
+	Dialog.show();
+	shelp_=Dialog.getChoice;
+	dist_=Dialog.getNumber;
+	unit_=Dialog.getString;
+	minsize_=Dialog.getNumber;
+	Ch_=Dialog.getChoice;
+	t1 = Dialog.getNumber;
+	t2 = Dialog.getNumber;
+	water_=Dialog.getChoice;
+/*saves user choice as variable */
+//	shelp_=Dialog.getChoice;
+//	Ch_=Dialog.getChoice;
+
+/*ask for watershedding*/
+//	Dialog.create("Do you want to use watershedding?");
+//	Dialog.addChoice("watershedding", water_, defwater_);
+//	Dialog.show();
+//	water_=Dialog.getChoice;
+
+	setBatchMode(true);
+	if (Ch_ == "RFP"){
+		x_ = "C2";
+		y_ = "C3";
+		z_ = "C1";
+	}	
+	else if (Ch_ == "GFP"){
+		x_ = "C1";
+		y_ = "C3";
+		z_ = "C2";
+	}
+	else if (Ch_ == "Cy5"){
+		x_ = "C1";
+		y_ = "C2";
+		z_ = "C3";
+	}
+
+if (items==0)
+	{exit ("No files in source directory - re-run macro with different directory")}
+
+if (shelp_=="help ONLY") {
+	helpfile();
+}
+else if (shelp_=="yes") {
+	helpfile();	
+	/*ask for thresholds to be used*/
+	/*Dialog.create("Enter lower and upper threshold");
+	Dialog.addNumber("set lower threshold", 0);
+	Dialog.addNumber("set upper threshold", 65535);
+	Dialog.show();
+	t1 = Dialog.getNumber;
+	t2 = Dialog.getNumber;
+*/
+/*	
+	t1 = getNumber("set lower threshold", 0); 	
+	t2 = getNumber("set upper threshold", 65535);
+	*/
+	analyseROIs();
+	setBatchMode(false);
+}
+else if (shelp_=="no") {
+	/*ask for thresholds to be used*/
+	/*Dialog.create("Enter lower and upper threshold");
+	Dialog.addNumber("set lower threshold", 0);
+	Dialog.addNumber("set upper threshold", 65535);
+	Dialog.show();
+	t1 = Dialog.getNumber;
+	t2 = Dialog.getNumber;
+	*/
+/*	t1 = getNumber("set lower threshold", 0); 	
+	t2 = getNumber("set upper threshold", 65535);
+	*/
+	analyseROIs();
+	setBatchMode(false);
+}
+else {exit ("error in helpfile call")}
+	run("Close All");
+	setBatchMode(false);
+}
